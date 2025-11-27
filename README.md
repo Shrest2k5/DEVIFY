@@ -18,6 +18,13 @@
 - 🧑‍💻 Git & GitHub Workflow (branches, PRs, merges)  
 - 🚀 Deployment on Sevalla (free-tier friendly)
 
+# Devify
+
+## 🔗 Live Demo  
+👉 https://devify-9a8t2.sevalla.app/  
+_Hosted on Sevalla_
+
+
 ## 🧪 .env Setup
 
 ### **Backend (`/backend`)**

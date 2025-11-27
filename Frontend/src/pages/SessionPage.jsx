@@ -2,31 +2,28 @@ import { useUser } from "@clerk/clerk-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { useEndSession, useJoinSession, useSessionById } from "../hooks/useSessions";
-import { PROBLEMS } from "../data/problems.js";
-import { executeCode } from "../lib/piston.js";
+import { PROBLEMS } from "../data/problems";
+import { executeCode } from "../lib/piston";
 import Navbar from "../components/Navbar";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
-import { getDifficultyBadgeClass } from "../lib/util.js";
+import { getDifficultyBadgeClass } from "../lib/util";
 import { Loader2Icon, LogOutIcon, PhoneOffIcon } from "lucide-react";
-import CodeEditorPanel from "../components/CodeEditorPanel.jsx";
-import OutputPanel from "../components/OutputPanel.jsx";
-import useStreamClient from "../hooks/useStreamClient.js";
+import CodeEditorPanel from "../components/CodeEditorPanel";
+import OutputPanel from "../components/OutputPanel";
+
+import useStreamClient from "../hooks/useStreamClient";
 import { StreamCall, StreamVideo } from "@stream-io/video-react-sdk";
-import VideoCallUI from "../components/VideoCallUI.jsx";
+import VideoCallUI from "../components/VideoCallUI";
 
 function SessionPage() {
-  // UI/state
-  const [isInitializingCall, setIsInitializingCall] = useState(true);
-  const [output, setOutput] = useState(null);
-  const [isRunning, setIsRunning] = useState(false);
-
-  // routing / auth
   const navigate = useNavigate();
   const { id } = useParams();
   const { user } = useUser();
+  const [output, setOutput] = useState(null);
+  const [isRunning, setIsRunning] = useState(false);
 
-  // session data + mutations
   const { data: sessionData, isLoading: loadingSession, refetch } = useSessionById(id);
+
   const joinSessionMutation = useJoinSession();
   const endSessionMutation = useEndSession();
 
@@ -34,7 +31,14 @@ function SessionPage() {
   const isHost = session?.host?.clerkId === user?.id;
   const isParticipant = session?.participant?.clerkId === user?.id;
 
-  // problem / editor
+  const { call, channel, chatClient, isInitializingCall, streamClient } = useStreamClient(
+    session,
+    loadingSession,
+    isHost,
+    isParticipant
+  );
+
+  // find the problem data based on session problem title
   const problemData = session?.problem
     ? Object.values(PROBLEMS).find((p) => p.title === session.problem)
     : null;
@@ -42,43 +46,34 @@ function SessionPage() {
   const [selectedLanguage, setSelectedLanguage] = useState("javascript");
   const [code, setCode] = useState(problemData?.starterCode?.[selectedLanguage] || "");
 
-  // STREAM: hook that should return { streamClient, call, chatClient, channel, isReady }
-  // Make sure your useStreamClient hook returns those names (isReady boolean indicates call readiness)
-  const { streamClient, call, chatClient, channel, isReady: isCallReady } = useStreamClient(id);
-
-  // when the stream hook says ready, mark initialization done
-  useEffect(() => {
-    if (isCallReady) {
-      setIsInitializingCall(false);
-    }
-  }, [isCallReady]);
-
-  // Auto-join session if not host/participant
+  // auto-join session if user is not already a participant and not the host
   useEffect(() => {
     if (!session || !user || loadingSession) return;
     if (isHost || isParticipant) return;
 
     joinSessionMutation.mutate(id, { onSuccess: refetch });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    // remove the joinSessionMutation, refetch from dependencies to avoid infinite loop
   }, [session, user, loadingSession, isHost, isParticipant, id]);
 
-  // Redirect when session ends
+  // redirect the "participant" when session ends
   useEffect(() => {
     if (!session || loadingSession) return;
+
     if (session.status === "completed") navigate("/dashboard");
   }, [session, loadingSession, navigate]);
 
-  // update starter code when problem or language changes
+  // update code when problem loads or changes
   useEffect(() => {
     if (problemData?.starterCode?.[selectedLanguage]) {
       setCode(problemData.starterCode[selectedLanguage]);
     }
   }, [problemData, selectedLanguage]);
 
-  // Language handlers / run code
   const handleLanguageChange = (e) => {
     const newLang = e.target.value;
     setSelectedLanguage(newLang);
+    // use problem-specific starter code
     const starterCode = problemData?.starterCode?.[newLang] || "";
     setCode(starterCode);
     setOutput(null);
@@ -87,23 +82,19 @@ function SessionPage() {
   const handleRunCode = async () => {
     setIsRunning(true);
     setOutput(null);
-    try {
-      const result = await executeCode(selectedLanguage, code);
-      setOutput(result);
-    } catch (err) {
-      setOutput({ error: err.message || "Execution error" });
-    } finally {
-      setIsRunning(false);
-    }
+
+    const result = await executeCode(selectedLanguage, code);
+    setOutput(result);
+    setIsRunning(false);
   };
 
   const handleEndSession = () => {
     if (confirm("Are you sure you want to end this session? All participants will be notified.")) {
+      // this will navigate the HOST to dashboard
       endSessionMutation.mutate(id, { onSuccess: () => navigate("/dashboard") });
     }
   };
 
-  // Render
   return (
     <div className="h-screen bg-base-100 flex flex-col">
       <Navbar />
@@ -127,20 +118,20 @@ function SessionPage() {
                           <p className="text-base-content/60 mt-1">{problemData.category}</p>
                         )}
                         <p className="text-base-content/60 mt-2">
-                          Host: {session?.host?.name || "Loading..."} • {session?.participant ? 2 : 1}
-                          /2 participants
+                          Host: {session?.host?.name || "Loading..."} •{" "}
+                          {session?.participant ? 2 : 1}/2 participants
                         </p>
                       </div>
 
                       <div className="flex items-center gap-3">
                         <span
-                          className={`badge badge-lg ${getDifficultyBadgeClass(session?.difficulty)}`}
+                          className={`badge badge-lg ${getDifficultyBadgeClass(
+                            session?.difficulty
+                          )}`}
                         >
-                          {session?.difficulty
-                            ? session.difficulty.slice(0, 1).toUpperCase() + session.difficulty.slice(1)
-                            : "Easy"}
+                          {session?.difficulty.slice(0, 1).toUpperCase() +
+                            session?.difficulty.slice(1) || "Easy"}
                         </span>
-
                         {isHost && session?.status === "active" && (
                           <button
                             onClick={handleEndSession}
@@ -155,7 +146,6 @@ function SessionPage() {
                             End Session
                           </button>
                         )}
-
                         {session?.status === "completed" && (
                           <span className="badge badge-ghost badge-lg">Completed</span>
                         )}
@@ -193,17 +183,22 @@ function SessionPage() {
                               </div>
                               <div className="bg-base-200 rounded-lg p-4 font-mono text-sm space-y-1.5">
                                 <div className="flex gap-2">
-                                  <span className="text-primary font-bold min-w-[70px]">Input:</span>
+                                  <span className="text-primary font-bold min-w-[70px]">
+                                    Input:
+                                  </span>
                                   <span>{example.input}</span>
                                 </div>
                                 <div className="flex gap-2">
-                                  <span className="text-secondary font-bold min-w-[70px]">Output:</span>
+                                  <span className="text-secondary font-bold min-w-[70px]">
+                                    Output:
+                                  </span>
                                   <span>{example.output}</span>
                                 </div>
                                 {example.explanation && (
                                   <div className="pt-2 border-t border-base-300 mt-2">
                                     <span className="text-base-content/60 font-sans text-xs">
-                                      <span className="font-semibold">Explanation:</span> {example.explanation}
+                                      <span className="font-semibold">Explanation:</span>{" "}
+                                      {example.explanation}
                                     </span>
                                   </div>
                                 )}

@@ -1,7 +1,6 @@
 import { chatClient, streamClient } from "../lib/stream.js";
 import Session from "../models/Session.js";
 
-
 export async function createSession(req, res) {
   try {
     const { problem, difficulty } = req.body;
